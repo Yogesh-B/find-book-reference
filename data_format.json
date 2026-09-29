@@ -1,0 +1,7 @@
+{
+    "book_name":"book name goes here",
+    "page_no": "25",
+    "persons_mentioned": ["chhagan", "magan", "mohan", "rohan"],
+    "places_mentioned": ["jambala", "khopala", "tagdi", "bhadi", "bhavnagar"],
+    "text_content": "varta re varta, bhabho dhor charta..."
+}
