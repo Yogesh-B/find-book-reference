@@ -1,6 +1,10 @@
 {
-    "book_name":"book name goes here",
-    "page_no": "25",
+    "book_name": {
+        "gujarati": "આદર્શ ભક્ત ગાથા",
+        "english": "Aadarsh Bhaktgatha"
+    },
+    "book_page_no": "25",
+    "content_page_no": "25",
     "persons_mentioned": ["chhagan", "magan", "mohan", "rohan"],
     "places_mentioned": ["jambala", "khopala", "tagdi", "bhadi", "bhavnagar"],
     "dates_mentioned": [

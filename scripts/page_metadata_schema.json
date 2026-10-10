@@ -1,0 +1,75 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": [
+        "book_name",
+        "book_page_no",
+        "content_page_no",
+        "persons_mentioned",
+        "places_mentioned",
+        "dates_mentioned",
+        "festivals_events_mentioned",
+        "text_content"
+    ],
+    "properties": {
+        "book_name": {
+            "type": "object",
+            "required": [
+                "gujarati",
+                "english"
+            ],
+            "properties": {
+                "gujarati": {
+                    "type": "string",
+                    "description": "The name of the book in Gujarati (e.g., આદર્શ ભક્ત ગાથા)"
+                },
+                "english": {
+                    "type": "string",
+                    "description": "The name of the book in English or transliterated (e.g., Aadarsh Bhaktgatha)"
+                }
+            },
+            "additionalProperties": false
+        },
+        "book_page_no": {
+            "type": "string",
+            "description": "The page sequence number derived from the file name (e.g., '84' for page_0084.md/json)."
+        },
+        "content_page_no": {
+            "type": "string",
+            "description": "The page number as found in the text content (e.g., '84', '૮૫', '143', '૧૫૨'). Return an empty string if not found."
+        },
+        "persons_mentioned": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "All person names mentioned on this page, including saints, devotees, historical figures, and deities."
+        },
+        "places_mentioned": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "All place names mentioned on this page, including villages, cities, temples, regions, rivers, and mountains."
+        },
+        "dates_mentioned": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "All dates mentioned on this page, in their original format as written in the text."
+        },
+        "festivals_events_mentioned": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "All festivals, religious events, or ceremonies mentioned on this page."
+        },
+        "text_content": {
+            "type": "string",
+            "description": "Full page text, cleaned of page number markers ($$84$$, $૮૫$, etc.) and with extra whitespace normalized."
+        }
+    },
+    "additionalProperties": false
+}

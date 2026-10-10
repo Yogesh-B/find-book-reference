@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build a Python script (`scripts/extract_metadata.py`) that reads each OCR markdown page, sends it to an LLM via **Antigravity CLI** (`agy -p --json-schema`), and produces a structured JSON file matching the [data_format.json](file:///home/yogesh/Documents/repos/find-book-reference/data_format.json) schema — for every page of every book.
+Build a Python script (`scripts/t1_extract_metadata.py`) that reads each OCR markdown page, sends it to an LLM via **Antigravity CLI** (`agy -p --json-schema`), and produces a structured JSON file matching the [data_format.json](file:///home/yogesh/Documents/repos/find-book-reference/data_format.json) schema — for every page of every book.
 
 ---
 
@@ -18,8 +18,12 @@ Build a Python script (`scripts/extract_metadata.py`) that reads each OCR markdo
 For each page, a JSON like:
 ```json
 {
-    "book_name": "આદર્શ ભક્ત ગાથા",
-    "page_no": "84",
+    "book_name": {
+        "gujarati": "આદર્શ ભક્ત ગાથા",
+        "english": "Aadarsh Bhaktgatha"
+    },
+    "book_page_no": "84",
+    "content_page_no": "143",
     "persons_mentioned": ["કલ્યાણભાઈ", "મયારામ ભટ્ટ", "શ્રીજી મહારાજ"],
     "places_mentioned": ["વંથળી", "મેઘપુર", "સોરઠ"],
     "dates_mentioned": [],
@@ -34,7 +38,7 @@ For each page, a JSON like:
 
 ```mermaid
 flowchart TD
-    A["📄 OCR Markdown Page\n(page_0050.md)"] --> B["🔧 Script: extract_metadata.py"]
+    A["📄 OCR Markdown Page\n(page_0050.md)"] --> B["🔧 Script: t1_extract_metadata.py"]
     B --> C{"Build prompt:\npage text + extraction instructions"}
     C --> D["🚀 agy -p --json-schema schema.json\n(via subprocess)"]
     D --> E["📝 Structured JSON response"]
@@ -51,7 +55,7 @@ flowchart TD
 
 ## Detailed Script Plan
 
-### File: `scripts/extract_metadata.py`
+### File: `scripts/t1_extract_metadata.py`
 
 #### 1. CLI Arguments (via `argparse`)
 
@@ -72,19 +76,19 @@ flowchart TD
 **Usage examples:**
 ```bash
 # Single book, all pages
-python scripts/extract_metadata.py --book Aadarsh_bhaktgatha
+python scripts/t1_extract_metadata.py --book Aadarsh_bhaktgatha
 
 # Single book, page range
-python scripts/extract_metadata.py --book Aadarsh_bhaktgatha --pages 50-60
+python scripts/t1_extract_metadata.py --book Aadarsh_bhaktgatha --pages 50-60
 
 # All books, resume from where we left off
-python scripts/extract_metadata.py --all --resume
+python scripts/t1_extract_metadata.py --all --resume
 
 # Dry run to see what would be processed
-python scripts/extract_metadata.py --all --dry-run
+python scripts/t1_extract_metadata.py --all --dry-run
 
 # Use local llama-serve instead of agy
-python scripts/extract_metadata.py --book Aadarsh_bhaktgatha --use-openai
+python scripts/t1_extract_metadata.py --book Aadarsh_bhaktgatha --use-openai
 ```
 
 #### 2. JSON Schema File: `scripts/page_metadata_schema.json`
@@ -95,16 +99,31 @@ This is the enforced output schema passed to `agy --json-schema`:
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "type": "object",
-    "required": ["book_name", "page_no", "persons_mentioned", "places_mentioned",
+    "required": ["book_name", "book_page_no", "content_page_no", "persons_mentioned", "places_mentioned",
                  "dates_mentioned", "festivals_events_mentioned", "text_content"],
     "properties": {
         "book_name": {
-            "type": "string",
-            "description": "The name of the book in Gujarati (e.g., આદર્શ ભક્ત ગાથા)"
+            "type": "object",
+            "required": ["gujarati", "english"],
+            "properties": {
+                "gujarati": {
+                    "type": "string",
+                    "description": "The name of the book in Gujarati (e.g., આદર્શ ભક્ત ગાથા)"
+                },
+                "english": {
+                    "type": "string",
+                    "description": "The name of the book in English or transliterated (e.g., Aadarsh Bhaktgatha)"
+                }
+            },
+            "additionalProperties": false
         },
-        "page_no": {
+        "book_page_no": {
             "type": "string",
-            "description": "The page number as found in the text (e.g., 84, ૮૫)."
+            "description": "The page sequence number derived from the file name (e.g., '84' for page_0084.md/json)."
+        },
+        "content_page_no": {
+            "type": "string",
+            "description": "The page number as found in the text content (e.g., 84, ૮૫, 143, ૧૫૨). Return empty string if not found."
         },
         "persons_mentioned": {
             "type": "array",
@@ -172,13 +191,14 @@ You are a metadata extraction assistant for Gujarati religious scripture books.
 
 Given the text content of a single page from a book, extract the following information:
 
-1. **book_name**: The name of the book in Gujarati. Hint: the book folder
-   name is "{book_folder_name}" and section headers on the page may contain
-   the book title "{book_title_hint}".
+1. **book_name**: An object with the book name in both Gujarati and English:
+   - "gujarati": The name of the book in Gujarati. Hint: section headers on the page may contain the book title "{book_title_hint}".
+   - "english": The name of the book in English / transliterated. Hint: the book folder name is "{book_folder_name}".
 
-2. **page_no**: The page number as it appears in the text. Look for patterns
-   like $$84$$, $૮૫$, or standalone numbers. Use the content-based page
-   number, not the file sequence number.
+2. **book_page_no**: The page sequence number derived from the file name ("{file_page_no}").
+
+3. **content_page_no**: The page number as it appears in the text. Look for patterns
+   like $$84$$, $૮૫$, $$143$$, or standalone numbers. If no page number is found, return an empty string.
 
 3. **persons_mentioned**: Extract ALL person names. These include:
    - Saints and spiritual leaders (e.g., શ્રીજી મહારાજ, ગુણાતીતાનંદ સ્વામી)
@@ -350,7 +370,7 @@ When `--concurrency > 1`, use `concurrent.futures.ThreadPoolExecutor` to run mul
 |------|---------|
 | [`scripts/page_metadata_schema.json`](file:///home/yogesh/Documents/repos/find-book-reference/scripts/page_metadata_schema.json) | JSON Schema for the output format |
 | [`scripts/prompts.py`](file:///home/yogesh/Documents/repos/find-book-reference/scripts/prompts.py) | Prompt templates (keeps main script clean) |
-| [`scripts/extract_metadata.py`](file:///home/yogesh/Documents/repos/find-book-reference/scripts/extract_metadata.py) | Main script — orchestrates everything |
+| [`scripts/t1_extract_metadata.py`](file:///home/yogesh/Documents/repos/find-book-reference/scripts/t1_extract_metadata.py) | Main script — orchestrates everything |
 
 ---
 
@@ -360,11 +380,11 @@ When `--concurrency > 1`, use `concurrent.futures.ThreadPoolExecutor` to run mul
 flowchart TD
     S1["1. Create scripts/page_metadata_schema.json\n(JSON Schema)"] --> S2
     S2["2. Create scripts/prompts.py\n(Prompt templates)"] --> S3
-    S3["3. Create scripts/extract_metadata.py\n(Main script)"] --> S4
-    S4["4. Test on 1 page:\npython scripts/extract_metadata.py\n  --book Aadarsh_bhaktgatha --pages 50"] --> S5
+    S3["3. Create scripts/t1_extract_metadata.py\n(Main script)"] --> S4
+    S4["4. Test on 1 page:\npython scripts/t1_extract_metadata.py\n  --book Aadarsh_bhaktgatha --pages 50"] --> S5
     S5["5. Verify output JSON matches\ndata_format.json structure"] --> S6
-    S6["6. Run on full book:\npython scripts/extract_metadata.py\n  --book Aadarsh_bhaktgatha --resume"] --> S7
-    S7["7. Run on all books:\npython scripts/extract_metadata.py\n  --all --resume"]
+    S6["6. Run on full book:\npython scripts/t1_extract_metadata.py\n  --book Aadarsh_bhaktgatha --resume"] --> S7
+    S7["7. Run on all books:\npython scripts/t1_extract_metadata.py\n  --all --resume"]
 
     style S1 fill:#e8f5e9
     style S4 fill:#fff3e0

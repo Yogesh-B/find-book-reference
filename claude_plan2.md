@@ -128,7 +128,7 @@ flowchart TD
     subgraph "One-Time Setup (Indexing Pipeline)"
         A["📄 OCR Markdown Files\n27 books × ~270 pages each"] --> B["📖 Chapter Detector\nIdentifies chapter boundaries"]
         B --> C["✂️ Smart Chunker\nSplits by chapter/section\n~500-800 words per chunk"]
-        C --> D["🏷️ Metadata Enricher\nAttaches: book_name, page_no,\nchapter_name, persons, places"]
+        C --> D["🏷️ Metadata Enricher\nAttaches: book_name (gu/en),\nbook_page_no, content_page_no,\npersons_mentioned, places_mentioned,\ndates_mentioned, festivals_events_mentioned,\ntext_content"]
         D --> E["🔢 Embedding Model\n(multilingual-e5-large or\nBGE-M3)"]
         E --> F["💾 Qdrant\nVector Database"]
     end
@@ -201,11 +201,14 @@ from dataclasses import dataclass
 @dataclass
 class BookChunk:
     """A single chunk of text with full metadata for the vector DB."""
-    text: str                    # The actual text content
-    book_name: str               # e.g., "આદર્શ ભક્ત ગાથા"
-    book_file: str               # e.g., "Aadarsh_bhaktgatha"
-    page_numbers: list[int]      # e.g., [86, 87] (can span multiple pages)
-    chapter_title: str           # e.g., "સત્સંગ પ્રચારક ભક્ત કલ્યાણભાઈ"
+    book_name: dict              # e.g., {"gujarati": "આદર્શ ભક્ત ગાથા", "english": "Aadarsh Bhaktgatha"}
+    book_page_no: str            # e.g., "86" (from filename page_0086.md)
+    content_page_no: str         # e.g., "143" (page number found in text)
+    persons_mentioned: list[str] # e.g., ["કલ્યાણભાઈ", "શ્રીજી મહારાજ"]
+    places_mentioned: list[str]  # e.g., ["વંથળી"]
+    dates_mentioned: list[str]   # e.g., ["સં. ૧૮૮૦"]
+    festivals_events_mentioned: list[str]  # e.g., ["અન્નકૂટ"]
+    text_content: str            # Full cleaned page text
     chunk_index: int             # Position within the book
 
 def load_book_pages(book_dir: Path) -> list[dict]:
@@ -353,15 +356,18 @@ for book_dir in sorted(data_dir.iterdir()):
         )
         
         points.append(PointStruct(
-            id=str(uuid.uuid5(uuid.NAMESPACE_DNS, 
-                              f"{chunk.book_file}_chunk_{chunk.chunk_index}")),
+            id=str(uuid.uuid5(uuid.NAMESPACE_DNS,
+                              f"{chunk.book_name['english']}_chunk_{chunk.chunk_index}")),
             vector=embedding.tolist(),
             payload={
-                "text": chunk.text,
-                "book_name": chunk.book_name,
-                "book_file": chunk.book_file,
-                "pages": chunk.page_numbers,       # Qdrant supports list payloads natively
-                "chapter": chunk.chapter_title,
+                "book_name": chunk.book_name,           # {"gujarati": ..., "english": ...}
+                "book_page_no": chunk.book_page_no,
+                "content_page_no": chunk.content_page_no,
+                "persons_mentioned": chunk.persons_mentioned,
+                "places_mentioned": chunk.places_mentioned,
+                "dates_mentioned": chunk.dates_mentioned,
+                "festivals_events_mentioned": chunk.festivals_events_mentioned,
+                "text_content": chunk.text_content,     # full cleaned page text
                 "chunk_index": chunk.chunk_index,
             }
         ))
@@ -438,12 +444,15 @@ def search_books(question: str, top_k: int = 10,
     chunks = []
     for hit in results:
         chunks.append({
-            "text": hit.payload["text"],
+            "text": hit.payload["text_content"],
             "metadata": {
-                "book_name": hit.payload["book_name"],
-                "book_file": hit.payload["book_file"],
-                "pages": hit.payload["pages"],
-                "chapter": hit.payload["chapter"],
+                "book_name": hit.payload["book_name"],        # {"gujarati": ..., "english": ...}
+                "book_page_no": hit.payload["book_page_no"],
+                "content_page_no": hit.payload["content_page_no"],
+                "persons_mentioned": hit.payload["persons_mentioned"],
+                "places_mentioned": hit.payload["places_mentioned"],
+                "dates_mentioned": hit.payload["dates_mentioned"],
+                "festivals_events_mentioned": hit.payload["festivals_events_mentioned"],
                 "chunk_index": hit.payload["chunk_index"],
             },
             "similarity": hit.score,
@@ -458,9 +467,10 @@ def ask_llm(question: str, context_chunks: list[dict]) -> str:
     context_parts = []
     for i, chunk in enumerate(context_chunks[:5]):  # Top 5 chunks
         meta = chunk["metadata"]
+        book = meta['book_name']
         context_parts.append(
-            f"--- Source {i+1}: Book: {meta['book_name']}, "
-            f"Chapter: {meta['chapter']}, Pages: {meta['pages']} ---\n"
+            f"--- Source {i+1}: Book: {book['gujarati']} ({book['english']}), "
+            f"Page: {meta['book_page_no']} (Content page: {meta['content_page_no']}) ---\n"
             f"{chunk['text']}\n"
         )
     
@@ -513,7 +523,8 @@ def find_reference(question: str, book_filter: str = None) -> str:
     print(f"📚 Found {len(chunks)} relevant passages")
     for i, chunk in enumerate(chunks[:3]):
         meta = chunk["metadata"]
-        print(f"   {i+1}. {meta['book_name']} (p.{meta['pages']}) "
+        book = meta['book_name']
+        print(f"   {i+1}. {book['gujarati']} (p.{meta['book_page_no']}) "
               f"— similarity: {chunk['similarity']:.3f}")
     
     # Step 2: Ask LLM with context
@@ -594,12 +605,17 @@ Your [data_format.json](file:///home/yogesh/Documents/repos/find-book-reference/
 
 ```json
 {
-    "book_name": "આદર્શ ભક્ત ગાથા",
-    "book_file": "Aadarsh_bhaktgatha", 
-    "page_numbers": [86, 87],
-    "chapter_title": "સત્સંગ પ્રચારક ભક્ત કલ્યાણભાઈ",
+    "book_name": {
+        "gujarati": "આદર્શ ભક્ત ગાથા",
+        "english": "Aadarsh Bhaktgatha"
+    },
+    "book_page_no": "86",
+    "content_page_no": "143",
     "persons_mentioned": ["કલ્યાણભાઈ", "શ્રીજી મહારાજ"],
     "places_mentioned": ["વંથળી"],
+    "dates_mentioned": ["સં. ૧૮૮૦"],
+    "festivals_events_mentioned": ["અન્નકૂટ"],
+    "text_content": "Full cleaned page text goes here...",
     "chunk_index": 5
 }
 ```
